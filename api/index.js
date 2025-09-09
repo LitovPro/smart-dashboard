@@ -1,4 +1,4 @@
-// Vercel serverless function with full Express backend
+// Main Vercel serverless function
 const express = require('express');
 const cors = require('cors');
 
@@ -145,12 +145,6 @@ app.post('/api/order/position', (req, res) => {
     
     // Update rank for the moved item
     itemRanks.set(movedId, newPosition);
-    
-    // If we have before/after items, we might need to adjust other ranks
-    if (beforeItemId || afterItemId) {
-      // For simplicity, we'll just update the moved item's rank
-      // In a real implementation, you might want to shift other items
-    }
     
     res.json({
       ok: true,
