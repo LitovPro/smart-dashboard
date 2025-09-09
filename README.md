@@ -135,10 +135,22 @@ Smart-Items-Dashboard/
 ## 🚀 Деплой
 
 Приложение готово для деплоя на:
-- **Vercel** (frontend)
-- **Railway** (backend)
-- **Heroku** (full-stack)
-- **DigitalOcean** (VPS)
+- **GitHub Pages** (frontend) - автоматический деплой через GitHub Actions
+- **Railway** (backend) - автоматический деплой через GitHub Actions
+- **Vercel** (full-stack) - альтернативный вариант
+- **Heroku** (full-stack) - альтернативный вариант
+
+### GitHub Pages (Рекомендуется)
+
+1. **Включите GitHub Pages** в настройках репозитория:
+   - Settings → Pages → Source: GitHub Actions
+   
+2. **Деплой происходит автоматически** при каждом push в main ветку
+
+3. **Ваше приложение будет доступно по адресу:**
+   ```
+   https://litovpro.github.io/Smart-Items-Dashboard/
+   ```
 
 ## 📝 Лицензия
 
@@ -150,6 +162,6 @@ MIT License
 
 ---
 
-**Демо:** [Ссылка на деплой]
+**Демо:** [https://litovpro.github.io/Smart-Items-Dashboard/](https://litovpro.github.io/Smart-Items-Dashboard/)
 
 **GitHub:** [https://github.com/LitovPro/Smart-Items-Dashboard](https://github.com/LitovPro/Smart-Items-Dashboard)
