@@ -101,31 +101,28 @@ router.post('/api/order', (req: Request, res: Response, next) => {
   try {
     const clientId = requireClientId(req);
     const payload: ReorderPayload = req.body;
-    
-    const { movedId, targetId, position, beforeId, afterId } = payload;
-    
+
+    const { movedId, targetId, position } = payload;
+
     if (typeof movedId !== 'number' || typeof targetId !== 'number') {
       throw new HttpError(400, 'movedId and targetId must be numbers');
     }
-    
+
     if (position !== 'before' && position !== 'after') {
       throw new HttpError(400, 'position must be "before" or "after"');
     }
-    
-    if (beforeId !== undefined && beforeId !== null && typeof beforeId !== 'number') {
-      throw new HttpError(400, 'beforeId must be a number, null, or undefined');
+
+    // Validate IDs are in valid range
+    if (movedId < 1 || movedId > 1_000_000 || targetId < 1 || targetId > 1_000_000) {
+      throw new HttpError(400, 'IDs must be between 1 and 1,000,000');
     }
-    
-    if (afterId !== undefined && afterId !== null && typeof afterId !== 'number') {
-      throw new HttpError(400, 'afterId must be a number, null, or undefined');
-    }
-    
+
     applyReorderInsert(clientId, payload);
-    
+
     const response: ApiResponse = {
       ok: true
     };
-    
+
     res.json(response);
   } catch (error) {
     next(error);
@@ -142,7 +139,8 @@ router.get('/api/state', (req: Request, res: Response, next) => {
       ok: true,
       data: {
         selectedCount: state.selected.size,
-        rankCount: state.rank.size
+        rankCount: state.rank.size,
+        selectedItems: Array.from(state.selected)
       }
     };
     

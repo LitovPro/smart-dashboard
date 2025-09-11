@@ -23,8 +23,6 @@ export interface ReorderPayload {
   movedId: number;
   targetId: number;
   position: InsertPosition;
-  beforeId?: number | null;
-  afterId?: number | null;
 }
 
 export interface SelectionPayload {
@@ -48,5 +46,6 @@ export interface ItemsResponse {
 export interface StateResponse {
   selectedCount: number;
   rankCount: number;
+  selectedItems: number[];
 }
 

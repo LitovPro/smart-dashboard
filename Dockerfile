@@ -9,33 +9,39 @@ COPY package*.json ./
 COPY client/package*.json ./client/
 COPY server/package*.json ./server/
 
-# Install dependencies
-RUN npm install
-RUN cd client && npm install
-RUN cd server && npm install
+# Install all dependencies (including dev dependencies for build)
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build client and server
-RUN cd client && npm run build
-RUN cd server && npm run build
+# Build the application
+RUN npm run build
 
 # Production stage
 FROM node:18-alpine AS production
 
+# Install PM2 globally
+RUN npm install -g pm2
+
+# Create app directory
 WORKDIR /app
 
-# Copy built files
+# Copy built application
 COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/server/package*.json ./server/
 COPY --from=builder /app/client/dist ./client/dist
+COPY --from=builder /app/server/package*.json ./server/
+COPY --from=builder /app/package*.json ./
 
 # Install only production dependencies
-RUN cd server && npm ci --only=production
+WORKDIR /app/server
+RUN npm ci --only=production
+
+# Copy PM2 configuration
+COPY ecosystem.config.js ./
 
 # Expose port
 EXPOSE 3000
 
-# Start server
-CMD ["node", "server/dist/index.js"]
+# Start the application
+CMD ["pm2-runtime", "start", "ecosystem.config.js"]

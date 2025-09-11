@@ -18,7 +18,7 @@ import { ItemDTO } from '../api';
 interface DndContextProviderProps {
   children: React.ReactNode;
   items: ItemDTO[];
-  onReorder: (newItems: ItemDTO[]) => void;
+  onReorder: (movedId: number, targetId: number, position: 'before' | 'after') => void;
 }
 
 export function DndContextProvider({
@@ -46,13 +46,18 @@ export function DndContextProvider({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    
+
     console.log('🎯 DndContextProvider: handleDragEnd called');
     console.log('🎯 Active item ID:', active.id);
     console.log('🎯 Over item ID:', over?.id);
-    console.log('🎯 Current items count:', items.length);
-    console.log('🎯 Current items:', items.map(item => ({ id: item.id, label: item.label })));
-    
+    console.log('🎯 Current items order:', items.map(item => item.id));
+    console.log('🎯 Event details:', {
+      active: active.id,
+      over: over?.id,
+      delta: event.delta,
+      activatorEvent: event.activatorEvent
+    });
+
     setActiveItem(null);
 
     if (!over || active.id === over.id) {
@@ -60,28 +65,52 @@ export function DndContextProvider({
       return;
     }
 
-    const oldIndex = items.findIndex(item => item.id === active.id);
-    const newIndex = items.findIndex(item => item.id === over.id);
+    const movedId = active.id as number;
+    const targetId = over.id as number;
 
-    console.log('🎯 Old index:', oldIndex, 'New index:', newIndex);
+    // Determine position based on current item order
+    const movedIndex = items.findIndex(item => item.id === movedId);
+    const targetIndex = items.findIndex(item => item.id === targetId);
 
-    if (oldIndex !== -1 && newIndex !== -1) {
-      // Simple array move - just swap positions
-      const newItems = [...items];
-      const [movedItem] = newItems.splice(oldIndex, 1);
-      if (movedItem) {
-        newItems.splice(newIndex, 0, movedItem);
-      }
-      
-      console.log('🎯 DndContextProvider: Simple move from', oldIndex, 'to', newIndex);
-      console.log('🎯 Moved item:', movedItem);
-      console.log('🎯 New order:', newItems.map(item => item.id));
-      console.log('🎯 New items details:', newItems.map(item => ({ id: item.id, label: item.label })));
-      
-      onReorder(newItems);
-    } else {
-      console.log('🎯 DndContextProvider: Invalid indices - oldIndex:', oldIndex, 'newIndex:', newIndex);
+    if (movedIndex === -1 || targetIndex === -1) {
+      console.log('🎯 DndContextProvider: Invalid indices');
+      return;
     }
+
+    // If moving to the same position, do nothing
+    if (movedIndex === targetIndex) {
+      return;
+    }
+
+    // CORRECT LOGIC: Determine position based on the intended drop location
+    // In drag-and-drop, when you drop an element over another element,
+    // the position depends on where exactly you drop it relative to the target
+    let position: 'before' | 'after';
+
+    // If the moved element was originally BEFORE the target,
+    // and we're dropping it over the target, we want to move it AFTER the target
+    // If the moved element was originally AFTER the target,
+    // and we're dropping it over the target, we want to move it BEFORE the target
+    if (movedIndex < targetIndex) {
+      // Element was above target, now over target - move AFTER target
+      position = 'after';
+    } else {
+      // Element was below target, now over target - move BEFORE target
+      position = 'before';
+    }
+
+    console.log('🎯 DndContextProvider: Moving', movedId, position, targetId);
+    console.log('🎯 Moved index:', movedIndex, 'Target index:', targetIndex);
+    console.log('🎯 Final decision:', {
+      movedId,
+      targetId,
+      position,
+      movedIndex,
+      targetIndex,
+      movedWasBelow: movedIndex > targetIndex
+    });
+
+    onReorder(movedId, targetId, position);
   };
 
   return (

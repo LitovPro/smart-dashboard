@@ -21,17 +21,80 @@ export function getRank(state: ClientState, id: number): number {
 }
 
 /**
- * Choose a rank between two bounds
+ * Get predecessor item by rank (among overrides, or default neighbor)
+ */
+export function getPredByRank(state: ClientState, targetRank: number, excludeId?: number): {id: number, rank: number} | null {
+  let pred: {id: number, rank: number} | null = null;
+
+  // Find max rank < targetRank among overrides
+  for (const [id, rank] of state.rank.entries()) {
+    if (id !== excludeId && rank !== id && rank < targetRank) {
+      if (!pred || rank > pred.rank) {
+        pred = { id, rank };
+      }
+    }
+  }
+
+  // If no override pred found, use default pred (targetId - 1)
+  if (!pred && targetRank > 1) {
+    const defaultPredId = Math.floor(targetRank) - 1;
+    if (defaultPredId >= 1 && defaultPredId <= MAX_ID) {
+      pred = { id: defaultPredId, rank: defaultPredId };
+    }
+  }
+
+  // Special case: if targetRank is 1 and no pred found, we need to handle first position
+  if (!pred && targetRank === 1) {
+    return null; // Explicitly return null to indicate no predecessor
+  }
+
+  return pred;
+}
+
+/**
+ * Get successor item by rank (among overrides, or default neighbor)
+ */
+export function getSuccByRank(state: ClientState, targetRank: number, excludeId?: number): {id: number, rank: number} | null {
+  let succ: {id: number, rank: number} | null = null;
+
+  // Find min rank > targetRank among overrides
+  for (const [id, rank] of state.rank.entries()) {
+    if (id !== excludeId && rank !== id && rank > targetRank) {
+      if (!succ || rank < succ.rank) {
+        succ = { id, rank };
+      }
+    }
+  }
+
+  // If no override succ found, use default succ (targetId + 1)
+  if (!succ && targetRank < MAX_ID) {
+    const defaultSuccId = Math.floor(targetRank) + 1;
+    if (defaultSuccId >= 1 && defaultSuccId <= MAX_ID) {
+      succ = { id: defaultSuccId, rank: defaultSuccId };
+    }
+  }
+
+  return succ;
+}
+
+/**
+ * Choose a rank between two bounds, handling dense intervals
  */
 export function chooseBetween(lower?: number, upper?: number): number {
   if (lower !== undefined && upper !== undefined) {
-    return (lower + upper) / 2;
+    if (upper - lower >= EPS) {
+      return (lower + upper) / 2;
+    } else {
+      // Very small interval - place very close to the bounds
+      // For before: place just below upper, for after: place just above lower
+      return (lower + upper) / 2;
+    }
   }
   if (upper !== undefined) {
-    return upper - 1;
+    return upper - 0.0001;
   }
   if (lower !== undefined) {
-    return lower + 1;
+    return lower + 0.0001;
   }
   return 0;
 }
@@ -74,10 +137,13 @@ export function renormalizeWindow(
 }
 
 /**
- * Apply INSERT-style drag and drop reordering
+ * Apply INSERT-style drag and drop reordering with global rank calculation
  */
 export function applyReorderInsert(clientId: ClientId, payload: ReorderPayload): void {
-  const { movedId, targetId, position, beforeId, afterId } = payload;
+  const { movedId, targetId, position } = payload;
+
+  console.log('🖥️ SERVER: === APPLY REORDER INSERT ===');
+  console.log('🖥️ SERVER: movedId:', movedId, 'targetId:', targetId, 'position:', position);
 
   // Validation
   if (movedId < 1 || movedId > MAX_ID || targetId < 1 || targetId > MAX_ID) {
@@ -88,55 +154,108 @@ export function applyReorderInsert(clientId: ClientId, payload: ReorderPayload):
   }
 
   const state = store.get(clientId);
+  const targetRank = getRank(state, targetId);
 
-  // Calculate bounds based on position
+  console.log('🖥️ SERVER: targetRank:', targetRank);
+  console.log('🖥️ SERVER: existing ranks before:', Array.from(state.rank.entries()));
+
+  // Calculate bounds based on position and target rank
   let lower: number | undefined;
   let upper: number | undefined;
 
   if (position === 'before') {
-    lower = beforeId && beforeId !== movedId ? getRank(state, beforeId) : undefined;
-    upper = getRank(state, targetId);
+    // For 'before': we want to place movedId right before target
+    // upper = targetRank
+    // lower = rank of the element that should be right before target
+    upper = targetRank;
+
+    // Find what should be the predecessor of target (excluding movedId if it's currently there)
+    const pred = getPredByRank(state, targetRank, movedId);
+
+    if (pred && pred.id !== movedId) {
+      // If predecessor has a custom rank (not equal to its id), use it
+      if (pred.rank !== pred.id) {
+        lower = pred.rank;
+      } else {
+        // Predecessor has default rank, use a value very close to target rank
+        // This ensures moved element stays very close to target
+        lower = targetRank - 0.001;
+      }
+    } else {
+      // No predecessor found, or predecessor is movedId itself
+      // Use a value very close to target rank from below
+      lower = targetRank - 0.001;
+    }
+
+    console.log('🖥️ SERVER: position=before, targetRank:', targetRank, 'pred:', pred, 'lower:', lower, 'upper:', upper);
   } else {
-    lower = getRank(state, targetId);
-    upper = afterId && afterId !== movedId ? getRank(state, afterId) : undefined;
+    // For 'after': we want to place movedId right after target
+    // lower = targetRank
+    // upper = rank of the element that should be right after target
+    lower = targetRank;
+
+    // Find what should be the successor of target (excluding movedId if it's currently there)
+    const succ = getSuccByRank(state, targetRank, movedId);
+
+    if (succ && succ.id !== movedId) {
+      // If successor has a custom rank (not equal to its id), use it
+      if (succ.rank !== succ.id) {
+        upper = succ.rank;
+      } else {
+        // Successor has default rank, use a value very close to target rank
+        // This ensures moved element stays very close to target
+        upper = targetRank + 0.001;
+      }
+    } else {
+      // No successor found, or successor is movedId itself
+      // Use a value very close to target rank from above
+      upper = targetRank + 0.001;
+    }
+
+    console.log('🖥️ SERVER: position=after, targetRank:', targetRank, 'succ:', succ, 'lower:', lower, 'upper:', upper);
   }
 
-  // Check if we need to renormalize
+  // Check if we need to renormalize (dense interval)
   const hasBothBounds = lower !== undefined && upper !== undefined;
   const needsRenormalization = hasBothBounds && (upper! - lower!) < EPS;
 
+  console.log('🖥️ SERVER: hasBothBounds:', hasBothBounds, 'needsRenormalization:', needsRenormalization);
+
   if (needsRenormalization) {
-    // Collect IDs in the affected window
+    // Collect IDs in the affected window and renormalize
     const idsInOrder: number[] = [];
-    
-    // Add beforeId if it exists and is not the moved item
-    if (beforeId && beforeId !== movedId) {
-      idsInOrder.push(beforeId);
-    }
-    
-    // Add moved and target items in the correct order
+
     if (position === 'before') {
+      // Window: [pred?, moved, target, succ?]
+      const pred = getPredByRank(state, targetRank, movedId);
+      if (pred) idsInOrder.push(pred.id);
       idsInOrder.push(movedId, targetId);
+      const succ = getSuccByRank(state, targetRank, movedId);
+      if (succ) idsInOrder.push(succ.id);
     } else {
+      // Window: [pred?, target, moved, succ?]
+      const pred = getPredByRank(state, targetRank, movedId);
+      if (pred) idsInOrder.push(pred.id);
       idsInOrder.push(targetId, movedId);
-    }
-    
-    // Add afterId if it exists and is not the moved item
-    if (afterId && afterId !== movedId) {
-      idsInOrder.push(afterId);
+      const succ = getSuccByRank(state, targetRank, movedId);
+      if (succ) idsInOrder.push(succ.id);
     }
 
+    console.log('🖥️ SERVER: renormalizing window, idsInOrder:', idsInOrder, 'lower:', lower, 'upper:', upper);
     renormalizeWindow(state, idsInOrder, lower, upper);
   } else {
     // Simple case: assign new rank
     const newRank = chooseBetween(lower, upper);
+    console.log('🖥️ SERVER: simple case, newRank:', newRank);
     state.rank.set(movedId, newRank);
-    
-    // Also ensure target has a rank if it doesn't have one
+
+    // Ensure target has a rank if it doesn't have one
     if (!state.rank.has(targetId)) {
       state.rank.set(targetId, targetId);
     }
   }
+
+  console.log('🖥️ SERVER: existing ranks after:', Array.from(state.rank.entries()));
 }
 
 /**
@@ -153,6 +272,9 @@ export function listPage(
   const items: ItemDTO[] = [];
   let seen = 0;
 
+  console.log('🖥️ SERVER: listPage called with q:', q, 'offset:', offset, 'limit:', limit);
+  console.log('🖥️ SERVER: current ranks:', Array.from(state.rank.entries()));
+
   // Stream A: Override items (items with custom ranks)
   const overrides: Array<{ id: number; rank: number }> = [];
   for (const [id, rank] of state.rank.entries()) {
@@ -161,6 +283,8 @@ export function listPage(
     }
   }
   overrides.sort((a, b) => a.rank - b.rank || a.id - b.id);
+
+  console.log('🖥️ SERVER: overrides:', overrides);
 
   // Stream B: Default items (items without custom ranks)
   let defaultPointer = 1;

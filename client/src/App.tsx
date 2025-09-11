@@ -50,6 +50,7 @@ function App(): JSX.Element {
           query={query}
           onQueryChange={setQuery}
           updateItems={updateItems}
+          onReorder={() => {}} // Handled internally by ItemsTable
         />
       </main>
     </div>

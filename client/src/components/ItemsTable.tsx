@@ -21,7 +21,7 @@ function SortableRow({ item, isSelected, onToggle }: SortableRowProps): JSX.Elem
     transition,
     isDragging,
     isOver,
-  } = useSortable({ 
+  } = useSortable({
     id: item.id,
     disabled: false,
   });
@@ -48,7 +48,7 @@ function SortableRow({ item, isSelected, onToggle }: SortableRowProps): JSX.Elem
           aria-label={`Select ${item.label}`}
         />
       </td>
-      <td 
+      <td
         className="label-cell drag-handle"
         {...listeners}
       >
@@ -69,6 +69,7 @@ interface ItemsTableProps {
   query: string;
   onQueryChange: (query: string) => void;
   updateItems: (newItems: ItemDTO[]) => void;
+  onReorder: (movedId: number, targetId: number, position: 'before' | 'after') => void;
 }
 
 export function ItemsTable({
@@ -82,13 +83,14 @@ export function ItemsTable({
   query,
   onQueryChange,
   updateItems,
+  onReorder: _onReorder, // Used by DndContextProvider
 }: ItemsTableProps): JSX.Element {
   const [localItems, setLocalItems] = useState<ItemDTO[]>(items);
   const [showSelectedList, setShowSelectedList] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const apiClient = createApiClient(clientId);
-  const { toggleItem, clearSelection, isSelected, selectedCount, selectedItems } = useSelectedItems();
+  const { toggleItem, clearSelection, isSelected, selectedCount, selectedItems } = useSelectedItems(clientId);
 
   // Get selected items with their labels
   const getSelectedItemsWithLabels = useCallback(() => {
@@ -144,105 +146,70 @@ export function ItemsTable({
     }
   }, [apiClient, onReset, clearSelection]);
 
-  // Handle reorder - CORRECT APPROACH: both modes save to server
-  const handleReorder = useCallback(async (newItems: ItemDTO[]) => {
+  // Handle reorder - Send INSERT payload to server
+  const handleReorder = useCallback(async (movedId: number, targetId: number, position: 'before' | 'after') => {
     console.log('📋 ItemsTable: handleReorder called');
+    console.log('📋 Moved ID:', movedId, 'Target ID:', targetId, 'Position:', position);
     console.log('📋 Current query:', query);
-    console.log('📋 Is in search mode:', query.length > 0);
-    console.log('📋 New items count:', newItems.length);
-    console.log('📋 New items IDs:', newItems.map(item => item.id));
-    console.log('📋 New items details:', newItems.map(item => ({ id: item.id, label: item.label })));
-    console.log('📋 Original items count:', items.length);
-    console.log('📋 Original items IDs:', items.map(item => item.id));
-    
+    console.log('📋 Current items count:', items.length);
+
+    // Optimistically update UI by simulating the move
+    const movedIndex = items.findIndex(item => item.id === movedId);
+    const targetIndex = items.findIndex(item => item.id === targetId);
+
+    if (movedIndex === -1 || targetIndex === -1) {
+      console.log('📋 Invalid indices, skipping reorder');
+      return;
+    }
+
+    // Create new order by removing moved item and inserting at target position
+    const newItems = [...items];
+    const [movedItem] = newItems.splice(movedIndex, 1);
+
+    if (!movedItem) {
+      console.log('📋 Moved item not found, skipping reorder');
+      return;
+    }
+
+    // Insert at the correct position based on position parameter
+    let insertIndex = targetIndex;
+    if (position === 'after') {
+      insertIndex = targetIndex + 1;
+    }
+
+    newItems.splice(insertIndex, 0, movedItem);
+
+    console.log('📋 Optimistic update - new order:', newItems.map(item => item.id));
+
     // Update UI immediately
     setLocalItems(newItems);
     updateItems(newItems);
 
     try {
-      if (query.length > 0) {
-        // SEARCH MODE: Use smart position updates to preserve global order
-        console.log('📋 SEARCH MODE: Using smart position updates');
-        
-        // Find what actually changed
-        const oldOrder = items.map(item => item.id);
-        const newOrder = newItems.map(item => item.id);
-        
-        // Find the moved item and its new position
-        let movedItemId = null;
-        let newPosition = -1;
-        
-        // The correct approach: find the item that changed position
-        // We need to find which item moved from one position to another
-        for (let i = 0; i < Math.min(oldOrder.length, newOrder.length); i++) {
-          if (oldOrder[i] !== newOrder[i]) {
-            // Check if the item at position i in oldOrder moved to a different position
-            const itemAtOldPosition = oldOrder[i];
-            const foundNewPosition = newOrder.indexOf(itemAtOldPosition as number);
-            
-            if (foundNewPosition !== -1 && foundNewPosition !== i) {
-              // This item moved from i to foundNewPosition
-              movedItemId = itemAtOldPosition;
-              newPosition = foundNewPosition;
-              console.log('📋 SEARCH MODE: Found moved item', movedItemId, 'from position', i, 'to position', newPosition);
-              break;
-            }
-          }
-        }
-        
-        if (movedItemId !== null && newPosition >= 0) {
-          console.log('📋 SEARCH MODE: Moved item', movedItemId, 'to position', newPosition);
-          
-          // Get context items (before and after) in the NEW order
-          const beforeItemId = newPosition > 0 ? newOrder[newPosition - 1] : null;
-          const afterItemId = newPosition < newOrder.length - 1 ? newOrder[newPosition + 1] : null;
-          
-          console.log('📋 SEARCH MODE: Context - before:', beforeItemId, 'after:', afterItemId);
-          console.log('📋 SEARCH MODE: New order:', newOrder);
-          console.log('📋 SEARCH MODE: Old order:', oldOrder);
-          
-          // Use the position-based API to preserve global order
-          const payload: {
-            movedId: number;
-            newPosition: number;
-            beforeItemId?: number | null;
-            afterItemId?: number | null;
-          } = {
-            movedId: movedItemId as number,
-            newPosition: newPosition
-          };
-          
-          if (beforeItemId !== null && beforeItemId !== undefined) {
-            payload.beforeItemId = beforeItemId;
-          }
-          
-          if (afterItemId !== null && afterItemId !== undefined) {
-            payload.afterItemId = afterItemId;
-          }
-          
-          await apiClient.setItemPosition(payload);
-          console.log('📋 SEARCH MODE: Position update sent successfully');
-        } else {
-          console.log('📋 SEARCH MODE: No actual changes detected, skipping API call');
-        }
-        
-      } else {
-        // NORMAL MODE: Send the entire new order to server
-        console.log('📋 NORMAL MODE: Sending full order to server');
-        const itemIds = newItems.map(item => item.id);
-        console.log('📋 Sending new order to server:', itemIds);
-        
-        await apiClient.setOrder(itemIds);
-        console.log('📋 Order saved successfully to server');
-      }
-      
+      // Send INSERT payload to server
+      const payload = {
+        movedId,
+        targetId,
+        position
+      };
+
+      console.log('📋 Sending INSERT payload to server:', payload);
+      console.log('📋 Current items state:', {
+        movedId,
+        targetId,
+        position,
+        currentOrder: items.map(item => item.id)
+      });
+      await apiClient.postOrder(payload);
+      console.log('📋 Order saved successfully to server');
+
     } catch (error) {
       console.error('📋 Failed to save order:', error);
       // Revert on error
       setLocalItems(items);
       updateItems(items);
     }
-  }, [apiClient, items, updateItems, query]);
+  }, [apiClient, items, updateItems]);
 
 
   if (error) {
@@ -269,7 +236,7 @@ export function ItemsTable({
             className="search-input"
           />
         </div>
-        
+
         <div className="toolbar-right">
           <div className={`selection-info ${selectedCount > 0 ? 'has-selection' : ''}`}>
             <span className="selection-icon">✓</span>
@@ -278,7 +245,7 @@ export function ItemsTable({
               {selectedCount === 1 ? 'item selected' : 'items selected'}
             </span>
           </div>
-          
+
           {selectedCount > 0 && (
             <>
               <button
@@ -295,7 +262,7 @@ export function ItemsTable({
               </button>
             </>
           )}
-          
+
           <button
             onClick={handleReset}
             className="btn btn-danger"

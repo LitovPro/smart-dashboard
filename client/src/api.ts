@@ -26,13 +26,12 @@ export interface ReorderPayload {
   movedId: number;
   targetId: number;
   position: 'before' | 'after';
-  beforeId?: number | null;
-  afterId?: number | null;
 }
 
 export interface StateResponse {
   selectedCount: number;
   rankCount: number;
+  selectedItems: number[];
 }
 
 class ApiClient {
